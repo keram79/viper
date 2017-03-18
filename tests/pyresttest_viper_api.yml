@@ -1,0 +1,18 @@
+---
+- config:
+    - testset: "Viper API tests"
+
+- test:
+    - group: "Smoketest"
+    - name: "Basic smoketest"
+    - url: "/test"
+    - validators:
+        - compare: {jsonpath_mini: "message", comparator: "eq", expected: "test"}
+
+- test:
+    - group: "File endpoints"
+    - name: "Basic smoketest"
+    - url: "/file/find"
+    - method: "POST"
+    - validators:
+        - compare: {jsonpath_mini: "message", comparator: "eq", expected: "Invalid search term"}
