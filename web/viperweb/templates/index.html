@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Index{% endblock %}
+
+
+{% block content %}
+
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">Upload Sample</h3>
+    </div>
+    <div class="panel-body">
+        <form class="form-inline" role="form" action="/upload/" enctype="multipart/form-data" method="post" name="submit">
+
+            <div class="form-group">
+                <input type="file" class="filestyle" data-buttonBefore="true" name="file" multiple>
+            </div>
+
+            <div class="form-group">
+                <label for="compression"> | Compression</label>
+                <select class="form-control" name="compression">
+                  <option value="none">none</option>
+                  <option value="zip">zip</option>
+                  <option value="gz">gzip</option>
+                  <option value="bz2">bzip2</option>
+                  <option value="tar">tar</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+                <label class="sr-only" for="zip_pass">Zip Pass</label>
+                <input type="password" class="form-control" name="zip_pass" id="zip_pass" placeholder="Zip Password">
+            </div>
+
+            <div class="form-group">
+                <label for="storeZip">Store Zip</label>
+                <input type="checkbox" name="storezip" id=storeZip" value="storezip">
+            </div>
+
+            <div class="form-group">
+                <label for="tag_list"> | Tags</label>
+                <input type="text" class="form-control" name="tag_list" id="tag_list" placeholder="List of Tags">
+            </div>
+
+            <input type="hidden" name="project" value="{{project}}" />
+            <button type="submit" class="btn btn-default">Upload</button>
+            {% csrf_token %}
+        </form>
+    </div>
+</div>
+
+<!-- Download from URL -->
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">URL Download</h3>
+    </div>
+    <div class="panel-body">
+        <form class="form-inline" role="form" action="/urldownload/" enctype="multipart/form-data" method="post" name="submit">
+            <div class="form-group">
+                <label class="sr-only" for="URL">URL</label>
+                <input type="search" class="form-control" name="url" id="url" placeholder="URL">
+            </div>
+
+            <div class="checkbox">
+                <label><input type="checkbox" name="tor" value="tor"> Use Tor</label>
+            </div>
+
+            <div class="form-group">
+                <label for="tag_list">Tags</label>
+                <input type="text" class="form-control" name="tag_list" id="tag_list" placeholder="List of Tags">
+            </div>
+
+            <button type="submit" class="btn btn-default">Run</button>
+            <input type="hidden" name="project" value="{{project}}" />
+            {% csrf_token %}
+        </form>
+    </div>
+</div>
+
+<!-- Download from VirusTotal -->
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">VT Download</h3>
+    </div>
+    <div class="panel-body">
+        <form class="form-inline" role="form" action="/virustotal/" enctype="multipart/form-data" method="post" name="submit">
+            <div class="form-group">
+                <label class="sr-only" for="hash">HASH</label>
+                <input type="search" class="form-control" name="vt_hash" id="hash" placeholder="VT HASH">
+                <input type="hidden" name="project" value="{{project}}" />
+            </div>
+            <div class="form-group">
+                <label for="tag_list">Tags</label>
+                <input type="text" class="form-control" name="tag_list" id="tag_list" placeholder="List of Tags">
+            </div>
+
+            <button type="submit" class="btn btn-default">Run</button>
+            {% csrf_token %}
+        </form>
+    </div>
+</div>
+
+
+<!-- Search -->
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">Search Samples</h3>
+    </div>
+    <div class="panel-body">
+<form class="form-inline" role="form" action="/search/" enctype="multipart/form-data" method="post" name="search" target="_self">
+  <div class="form-group">
+      <select class="form-control" name="key">
+        <option value="name">Name</option>
+        <option value="type">Type</option>
+        <option value="mime">Mime</option>
+        <option value="md5">MD5</option>
+        <option value="sha256">SHA256</option>
+        <option value="tag">Tag</option>
+        <option value="note">Note</option>
+    </select>
+  </div>
+
+
+  <div class="form-group">
+    <label class="sr-only" for="term">Search Term</label>
+    <input type="text" class="form-control" name="term" id="term" placeholder="Search Term">
+  </div>
+
+
+  <div class="checkbox">
+    <label>
+      <input type="checkbox" name="project" value="project"> All Projects
+    </label>
+  </div>
+  <input type="hidden" name="curr_project" value="{{project}}" />
+  <button type="submit" class="btn btn-default">Search</button>
+  {% csrf_token %}
+</form>
+</div>
+</div>
+
+
+<!-- List Rules -->
+
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">Showing {{ samples.0 }} to {{ samples.1 }} of {{ sample_count }} Samples</h3>
+    </div>
+
+    <table class="table table-striped table-bordered table-hover">
+        <tr>
+            <th>#</th>
+            <th>Malware</th>
+            <th>SHA256</th>
+            <th>Tags</th>
+        </tr>
+        {% for row in sample_list %}
+        <tr>
+            <td>{{row.id}}</td>
+            <td><a href="/file/{{project}}/{{row.sha256}}/">{{row.name}}</a></td>
+            <td><a href="/file/{{project}}/{{row.sha256}}">{{row.sha256}}</a></td>
+            <td>
+            {% for tags in row.tag %}
+            {{tags.tag}},
+            {% endfor %}
+            </td>
+        </tr>
+        {% endfor %}      
+    </table>
+</div>
+
+
+<div class="text-center">
+    <nav>
+        <ul class="pagination">
+            {% if config_list.has_previous %}
+            <li><a href="?page={{ sample_list.previous_page_number }}">&laquo;</a></li>
+            {% else %}
+            <li class="disabled"><span><span aria-hidden="true">&laquo;</span></span></li>    
+            {% endif %}
+
+            {% for page in sample_list.paginator.page_range %}
+            {% spaceless %}
+            <li
+            {% if page == sample_list.number %}
+            class="active"
+            {% endif %}
+            ><a href="?page={{ page }}">{{ page }}</a></li>
+            {% endspaceless %}
+            {% endfor %}
+
+            {% if sample_list.has_next %}
+            <li><a href="?page={{ sample_list.next_page_number }}">&raquo;</a></li>
+            {% else %}
+            <li class="disabled"><span><span aria-hidden="true">&raquo;</span></span></li>    
+            {% endif %}
+        </ul>
+    </nav>
+</div>
+
+
+{% endblock %}

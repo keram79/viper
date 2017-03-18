@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Index{% endblock %}
+
+
+{% block content %}
+
+<ol class="breadcrumb">
+    <li><a href="/">Home</a></li>
+    <li><a href="/project/{{project}}">{{project}}</a></li>
+    <li><a href="/file/{{project}}/{{file_info.sha256}}">{{file_info.sha256}}</a></li>
+</ol>
+
+<ul id="navTabs" class="nav nav-tabs">
+    <li class="active"><a href="#static" data-toggle="tab">Static</a></li>
+    <li><a href="#notes" data-toggle="tab">Notes</a></li>
+    <li><a href="#modules" data-toggle="tab">Modules</a></li>
+    <li><a href="#hex" data-toggle="tab">Hex View</a></li>
+</ul>
+<div id="spin_loader"></div>
+<div class="tab-content">       
+    {% include "sections/static.html" %}
+    {% include "sections/notes.html" %}
+    {% include "sections/modules.html" %}
+    {% include "sections/hex.html" %}    
+</div>
+
+
+{% endblock %}
