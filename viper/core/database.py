@@ -6,12 +6,14 @@ from __future__ import unicode_literals  # make all strings unicode in python2
 import os
 import json
 from datetime import datetime
+from functools import wraps
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
 from sqlalchemy import Table, Index, create_engine, and_
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref, sessionmaker
+from sqlalchemy.orm import subqueryload
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from viper.common.out import print_warning, print_error
@@ -178,6 +180,51 @@ class Analysis(Base):
         self.results = results
 
 
+def get_malware_object():
+    """decorator: get malware object"""
+    def my_decorator(func):
+        @wraps(func)
+        def func_wrapper(db, malware_obj=None, malware_id=None, malware_sha256=None):
+            print("Wrapper start")
+
+            print("db: {}".format(db))
+            print("malaware_obj: {}".format(malware_obj))
+            print("malaware_id: {}".format(malware_id))
+            print("malaware_sha256: {}".format(malware_sha256))
+
+            if malware_obj and malware_id and malware_sha256:
+                raise Exception("please specify exactly one of malware_obj, malware_id, malware_sha256")
+            if malware_obj and malware_id:
+                raise Exception("please specify exactly one of malware_obj, malware_id, malware_sha256")
+            if malware_id and malware_sha256:
+                raise Exception("please specify exactly one of malware_obj, malware_id, malware_sha256")
+            if malware_obj and malware_sha256:
+                raise Exception("please specify exactly one of malware_obj, malware_id, malware_sha256")
+
+            session = db.Session()
+
+            if malware_obj:
+                if not isinstance(malware_obj, Malware):
+                    raise Exception("no malware dude!")
+                malware_obj = session.query(Malware).options(subqueryload(Malware.tag)).get(malware_obj.id)
+            if malware_id:
+                malware_obj = session.query(Malware)\
+                    .options(subqueryload(Malware.tag))\
+                    .get(malware_id)
+            if malware_sha256:
+                malware_obj = session.query(Malware).filter(Malware.sha256 == malware_sha256).one_or_none()
+
+            if not malware_obj:
+                print("Warn: No Malware object found")
+            else:
+                print("Found: {}".format(malware_obj))
+
+            print("Wrapper end")
+            return func(db, malware_obj=malware_obj)
+        return func_wrapper
+    return my_decorator
+
+
 class Database:
     #__metaclass__ = Singleton
 
@@ -244,6 +291,21 @@ class Database:
         session = self.Session()
         rows = session.query(Tag).all()
         return rows
+
+    @get_malware_object()
+    def list_malware_tags(self, malware_obj=None):
+        print("los")
+        # session = self.Session()
+        print(malware_obj)
+
+        # malware = get_malware_object(malware_obj, malware_id, malware_sha256)
+        if malware_obj:
+            print(malware_obj.tag)
+            print(malware_obj.note)
+            print(malware_obj.analysis)
+            return malware_obj.tag
+        else:
+            return []
 
     def delete_tag(self, tag_name, sha256):
         session = self.Session()
