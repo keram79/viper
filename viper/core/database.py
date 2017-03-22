@@ -22,6 +22,10 @@ from viper.common.objects import File
 from viper.core.project import __project__
 from viper.core.config import Config
 
+
+class InvalidSignature(Exception):
+    pass
+
 log = logging.getLogger('viper')
 
 cfg = Config()
@@ -187,43 +191,33 @@ def get_malware_object():
     """decorator: get malware object"""
     def my_decorator(func):
         @wraps(func)
-        def func_wrapper(db, malware_obj=None, malware_id=None, malware_sha256=None):
-            print("Wrapper start")
+        def func_wrapper(db, obj=None, id=None, sha256=None):
 
-            print("db: {}".format(db))
-            print("malaware_obj: {}".format(malware_obj))
-            print("malaware_id: {}".format(malware_id))
-            print("malaware_sha256: {}".format(malware_sha256))
-
-            if malware_obj and malware_id and malware_sha256:
-                raise Exception("please specify exactly one of malware_obj, malware_id, malware_sha256")
-            if malware_obj and malware_id:
-                raise Exception("please specify exactly one of malware_obj, malware_id, malware_sha256")
-            if malware_id and malware_sha256:
-                raise Exception("please specify exactly one of malware_obj, malware_id, malware_sha256")
-            if malware_obj and malware_sha256:
-                raise Exception("please specify exactly one of malware_obj, malware_id, malware_sha256")
+            if (obj and id) or (id and sha256) or (obj and sha256):
+                log.error("Please specify exactly one of: obj, id, sha256")
+                raise InvalidSignature("Error: Please specify exactly one of: obj, id, sha256")
 
             session = db.Session()
 
-            if malware_obj:
-                if not isinstance(malware_obj, Malware):
-                    raise Exception("no malware dude!")
-                malware_obj = session.query(Malware).options(subqueryload(Malware.tag)).get(malware_obj.id)
-            if malware_id:
-                malware_obj = session.query(Malware)\
+            if obj:
+                if not isinstance(obj, Malware):
+                    log.error("Provided non Malware object")
+                    raise Exception("Error: Provided non Malware object")
+                obj = session.query(Malware).options(subqueryload(Malware.tag)).get(obj.id)
+            if id:
+                obj = session.query(Malware)\
                     .options(subqueryload(Malware.tag))\
-                    .get(malware_id)
-            if malware_sha256:
-                malware_obj = session.query(Malware).filter(Malware.sha256 == malware_sha256).one_or_none()
+                    .get(id)
+            if sha256:
+                obj = session.query(Malware).filter(Malware.sha256 == sha256).one_or_none()
 
-            if not malware_obj:
-                print("Warn: No Malware object found")
+            if not obj:
+                log.warning("No Malware object found")
             else:
-                print("Found: {}".format(malware_obj))
+                log.info("Found: {}".format(obj))
 
-            print("Wrapper end")
-            return func(db, malware_obj=malware_obj)
+            log.debug("Wrapper end")
+            return func(db, malware_object=obj)
         return func_wrapper
     return my_decorator
 
@@ -297,15 +291,7 @@ class Database:
 
     @get_malware_object()
     def list_malware_tags(self, malware_obj=None):
-        print("los")
-        # session = self.Session()
-        print(malware_obj)
-
-        # malware = get_malware_object(malware_obj, malware_id, malware_sha256)
         if malware_obj:
-            print(malware_obj.tag)
-            print(malware_obj.note)
-            print(malware_obj.analysis)
             return malware_obj.tag
         else:
             return []
