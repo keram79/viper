@@ -5,6 +5,7 @@
 import argparse
 
 from viper.core.ui import console
+from viper.core.logger import init_logger
 from viper.core.project import __project__
 
 parser = argparse.ArgumentParser()
@@ -15,10 +16,24 @@ parser.add_argument(
     action='store',
     required=False)
 
+parser.add_argument(
+    '--log',
+    default="./viper.log",
+    help='Logfile (default: ./viper.log)')
+
+parser.add_argument(
+    '-d',
+    '--debug',
+    action='store_true',
+    help='Enable debugging')
+
 args = parser.parse_args()
 
 if args.project:
     __project__.open(args.project)
+
+log = init_logger(log_file_path=args.log, debug=args.debug)
+log.info('Starting viper-cli')
 
 c = console.Console()
 c.start()

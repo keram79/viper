@@ -5,6 +5,7 @@ from __future__ import unicode_literals  # make all strings unicode in python2
 
 import os
 import json
+import logging
 from datetime import datetime
 from functools import wraps
 
@@ -20,6 +21,8 @@ from viper.common.out import print_warning, print_error
 from viper.common.objects import File
 from viper.core.project import __project__
 from viper.core.config import Config
+
+log = logging.getLogger('viper')
 
 cfg = Config()
 
