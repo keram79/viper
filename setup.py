@@ -3,20 +3,46 @@
 # This file is part of Viper - https://github.com/viper-framework/viper
 # See the file 'LICENSE' for copying permission.
 
-from setuptools import setup, find_packages
 from viper.common.version import __version__
+
+# Always prefer setuptools over distutils
+from setuptools import setup, find_packages
+import pip
+
+links = []
+requires = []
+
+requirement_files = ['requirements-base.txt']
+
+for req_file in requirement_files:
+    requirements = pip.req.parse_requirements(req_file, session=pip.download.PipSession())
+
+    for item in requirements:
+        # we want to handle package names and also repo urls
+        if getattr(item, 'url', None):   # older pip has url
+            links.append(str(item.url))
+        if getattr(item, 'link', None):  # newer pip has link
+            links.append(str(item.link))
+        if item.req:
+            requires.append(str(item.req))
+
+description = "Binary Analysis & Management Framework"
 
 setup(
     name='viper',
     version=__version__,
     author='Claudio Guarnieri',
     author_email='nex@nex.sx',
-    description="Binary Analysis & Management Framework",
+    description=description,
+    long_description=description,
     url='http://viper.li',
 
+    platforms='any',
     scripts=['viper-cli', 'viper-api', 'viper-web', 'viper-update'],
-    packages=find_packages(),
-    setup_requires=['pytest-runner'],
+    packages=find_packages(exclude=['tests', 'tests.*']),
+    install_requires=requires,
+    dependency_links=links,
+
     tests_require=['pytest'],
 
     # BSD 3-Clause License:
