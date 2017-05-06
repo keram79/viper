@@ -34,7 +34,8 @@ association_table = Table(
     Column('tag_id', Integer, ForeignKey('tag.id')),
     Column('note_id', Integer, ForeignKey('note.id')),
     Column('malware_id', Integer, ForeignKey('malware.id')),
-    Column('analysis_id', Integer, ForeignKey('analysis.id'))
+    Column('analysis_id', Integer, ForeignKey('analysis.id')),
+    Column('filename_id', Integer, ForeignKey('filename.id'))
 )
 
 
@@ -72,6 +73,14 @@ class Malware(Base):
         secondary=association_table,
         backref=backref('malware')
     )
+
+    filename = relationship(
+        'Filename',
+        cascade='all, delete',
+        secondary=association_table,
+        backref=backref('filename')
+    )
+
     __table_args__ = (Index(
         'hash_index',
         'md5',
@@ -184,6 +193,27 @@ class Analysis(Base):
     def __init__(self, cmd_line, results):
         self.cmd_line = cmd_line
         self.results = results
+
+
+class Filename(Base):
+    __tablename__ = 'filename'
+
+    id = Column(Integer(), primary_key=True)
+    name = Column(String(260), unique=True, nullable=False)
+
+    def to_dict(self):
+        row_dict = {}
+        for column in self.__table__.columns:
+            value = getattr(self, column.name)
+            row_dict[column.name] = value
+
+        return row_dict
+
+    def __repr__(self):
+        return "<Filename: ('{0}','{1}')>".format(self.id, self.name)
+
+    def __init__(self, name):
+        self.name = name
 
 
 class Database:
@@ -593,4 +623,41 @@ class Database:
     def list_analysis(self):
         session = self.Session()
         rows = session.query(Analysis).all()
+        return rows
+
+    # Filename; add a Filename to Malware instance, get one/list all filename(s)
+    def add_filename(self, name, id=None, sha256=None):
+        session = self.Session()
+
+        if id and sha256:
+            raise NotImplementedError("specify either id or sha256, not both!")  # TODO(frennkie) that's not "NotImplemented"
+
+        if id:
+            malware_entry = session.query(Malware).get(id)
+        elif sha256:
+            malware_entry = session.query(Malware).filter(Malware.sha256 == sha256).one_or_none()
+        else:
+            raise NotImplementedError("specify either id or sha256, not nothing!")  # TODO(frennkie) that's not "NotImplemented"
+
+        if not malware_entry:
+            return
+        try:
+            new_filename = Filename(name)
+            malware_entry.filename.append(new_filename)
+            session.commit()
+            self.added_ids.setdefault("filename", []).append(new_filename.id)
+        except SQLAlchemyError as e:
+            print_error("Unable to store filename: {0}".format(e))
+            session.rollback()
+        finally:
+            session.close()
+
+    def get_filename(self, filename_id):
+        session = self.Session()
+        filename = session.query(Filename).get(filename_id)
+        return filename
+
+    def list_filename(self):
+        session = self.Session()
+        rows = session.query(Filename).all()
         return rows

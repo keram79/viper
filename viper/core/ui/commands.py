@@ -265,6 +265,7 @@ class Commands(object):
                 header=['Key', 'Value'],
                 rows=[
                     ['Name', __sessions__.current.file.name],
+                    ['Name(s)', __sessions__.current.file.filenames],
                     ['Tags', __sessions__.current.file.tags],
                     ['Path', __sessions__.current.file.path],
                     ['Size', __sessions__.current.file.size],

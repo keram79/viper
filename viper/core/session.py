@@ -87,6 +87,7 @@ class Sessions(object):
             if row:
                 session.file.id = row[0].id
                 session.file.name = row[0].name
+                session.file.filenames = ', '.join(filename.to_dict()['name'] for filename in row[0].filename)
                 session.file.tags = ', '.join(tag.to_dict()['tag'] for tag in row[0].tag)
 
                 if row[0].parent:
