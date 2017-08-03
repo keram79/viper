@@ -5,24 +5,13 @@
 import argparse
 import textwrap
 import os
-import time
-import glob
-import shutil
 import json
-import datetime
 
 try:
-    from pymisp import PyMISP, PyMISPError, MISPEvent, EncodeFull, EncodeUpdate
+    from pymisp import PyMISP, PyMISPError, MISPEvent, EncodeFull
     HAVE_PYMISP = True
 except:
     HAVE_PYMISP = False
-
-try:
-    from pytaxonomies import Taxonomies
-    HAVE_PYTAX = True
-except:
-    HAVE_PYTAX = True
-
 
 try:
     import requests
@@ -48,6 +37,16 @@ class MISP(Module):
     description = 'Upload and query IOCs to/from a MISP instance'
     authors = ['Raphaël Vinot']
 
+    from .misp_methods import admin  # noqa
+    from .misp_methods import create_event  # noqa
+    from .misp_methods import download  # noqa
+    from .misp_methods import check_hashes, _prepare_attributes, _populate  # noqa
+    from .misp_methods import store, _get_local_events  # noqa
+    from .misp_methods import tag  # noqa
+    from .misp_methods import version  # noqa
+    from .misp_methods import open_samples, _load_tmp_samples, _display_tmp_files, _clean_tmp_samples  # noqa
+    from .misp_methods import add, add_hashes, _check_add, _change_event  # noqa
+
     def __init__(self):
         super(MISP, self).__init__()
         self.cur_path = __project__.get_path()
@@ -67,6 +66,7 @@ class MISP(Module):
                                                 * 1: This community only
                                                 * 2: Connected communities
                                                 * 3: All communities
+                                                * 5: Inherit
 
                                             Sample categories:
                                                 * 0: Payload delivery
@@ -86,7 +86,8 @@ class MISP(Module):
                                                 * 3: Undefined
                                           '''))
         parser_up.add_argument("-e", "--event", type=int, help="Event ID to update. If None, and you're not connected to a MISP event a new one is created.")
-        parser_up.add_argument("-d", "--distrib", type=int, choices=[0, 1, 2, 3], help="Distribution of the attributes for the new event.")
+        parser_up.add_argument("-d", "--distrib", type=int, choices=[0, 1, 2, 3, 5], help="Distribution of the attributes for the new event.")
+        parser_up.add_argument("-s", "--sharing", type=int, help="Sharing group ID when distribution is set to 4.")
         parser_up.add_argument("-ids", action='store_true', help="Is eligible for automatically creating IDS signatures.")
         parser_up.add_argument("-c", "--categ", type=int, choices=[0, 1, 2, 3], default=1, help="Category of the samples.")
         parser_up.add_argument("-i", "--info", nargs='+', help="Event info field of a new event.")
@@ -127,6 +128,10 @@ class MISP(Module):
                                                           * 1: This community only
                                                           * 2: Connected communities
                                                           * 3: All communities
+                                                          * 4: Sharing group
+
+                                                      Sharing Group:
+                                                          * #: ID of sharing group
 
                                                       Analysis levels:
                                                           * 0: Initial
@@ -139,7 +144,8 @@ class MISP(Module):
                                                           * 2: Low
                                                           * 3: Undefined
                                                     '''))
-        parser_create_event.add_argument("-d", "--distrib", type=int, choices=[0, 1, 2, 3], help="Distribution of the attributes for the new event.")
+        parser_create_event.add_argument("-d", "--distrib", type=int, choices=[0, 1, 2, 3, 4], help="Distribution of the attributes for the new event.")
+        parser_create_event.add_argument("-s", "--sharing", type=int, help="Sharing group ID when distribution is set to 4.")
         parser_create_event.add_argument("-t", "--threat", type=int, choices=[0, 1, 2, 3], help="Threat level of a new event.")
         parser_create_event.add_argument("-a", "--analysis", type=int, choices=[0, 1, 2], help="Analysis level a new event.")
         parser_create_event.add_argument("-i", "--info", required=True, nargs='+', help="Event info field of a new event.")
@@ -193,6 +199,97 @@ class MISP(Module):
         s.add_argument("-s", "--search", help="Search all tags matching a value.")
         s.add_argument("-e", "--event", help="Add tag to the current event.")
         s.add_argument("-a", "--attribute", nargs='+', help="Add tag to an attribute of the current event. Syntax: <identifier for the attribute> <machinetag>")
+
+        # Admin
+        s = subparsers.add_parser('admin', help='Administration options.')
+        admin_parser = s.add_subparsers(dest='admin')
+        # Organisation
+        org = admin_parser.add_parser('org', help="Organisation managment.")
+        subparsers_org = org.add_subparsers(dest='org')
+        # Get
+        display = subparsers_org.add_parser('display', help="Display an organisation.")
+        display.add_argument('id', help='ID of the organisation to display. Use "local" to display all local organisations, "external" for all remote organisations, and "all", for both.')
+        # Search
+        search = subparsers_org.add_parser('search', help="Search an organisation by name.")
+        search.add_argument('name', help='(Partial) name of the organisation.')
+        search.add_argument('-t', '--type', default='local', choices=['local', 'external', 'all'],
+                            help='Use "local" to search in all local organisations, "external" for remote organisations, and "all", for both.')
+        # Add
+        add_org = subparsers_org.add_parser('add', help="Add an organisation.")
+        add_org.add_argument('name', help='Organisation name.')
+        add_org.add_argument('-u', '--uuid', default=None, help='UUID of the organisation.')
+        add_org.add_argument('-d', '--description', default=[], nargs='+', help='Description of the organisation.')
+        add_org.add_argument('-t', '--type', default=[], nargs='+', help='Type of the organisation.')
+        add_org.add_argument('-n', '--nationality', default=None, help='Nationality of the organisation.')
+        add_org.add_argument('-s', '--sector', default=[], nargs='+', help='Sector of the organisation.')
+        add_org.add_argument('-c', '--contacts', default=[], nargs='+', help='Contact point(s) in the organisation.')
+        add_org.add_argument('--not-local', default=True, action='store_false', help='**Not** a local organisation.')
+        # Delete
+        delete = subparsers_org.add_parser('delete', help="Delete an organisation.")
+        delete.add_argument('id', help='ID of the organisation to delete.')
+        # Edit
+        edit = subparsers_org.add_parser('edit', help="Edit an organisation.")
+        edit.add_argument('id', help='ID of the organisation to edit.')
+        edit.add_argument('-n', '--name', help='Organisation name.')
+        edit.add_argument('-u', '--uuid', help='UUID of the organisation.')
+        edit.add_argument('-d', '--description', default=[], nargs='+', help='Description of the organisation.')
+        edit.add_argument('-t', '--type', default=[], nargs='+', help='Type of the organisation.')
+        edit.add_argument('--nationality', help='Nationality of the organisation.')
+        edit.add_argument('-s', '--sector', default=[], nargs='+', help='Sector of the organisation.')
+        edit.add_argument('-c', '--contacts', default=[], nargs='+', help='Contact point(s) in the organisation.')
+        edit.add_argument('--not-local', default=True, action='store_false', help='**Not** a local organisation.')
+
+        # User
+        user = admin_parser.add_parser('user', help="User managment.")
+        subparsers_user = user.add_subparsers(dest='user')
+        # Get
+        display = subparsers_user.add_parser('display', help="Display a user.")
+        display.add_argument('id', help='ID of the user to display. Use "all" to display all users.')
+        # Search
+        search = subparsers_user.add_parser('search', help="Search a user by email.")
+        search.add_argument('name', help='(Partial) email of the user.')
+        # Add
+        add_usr = subparsers_user.add_parser('add', help="Add a user.")
+        add_usr.add_argument('email', help='User email address.')
+        add_usr.add_argument('-o', '--org-id', default=None, help='Organisation ID of the user.')
+        add_usr.add_argument('-r', '--role-id', default=None, help='Role of the user')
+        add_usr.add_argument('-g', '--gpgkey', default=None, help='Path to the GPG public key export')
+        add_usr.add_argument('-c', '--change-pw', default=None, action='store_true', help='Force thanging the password after next login')
+        add_usr.add_argument('-t', '--termsaccepted', default=None, action='store_true', help='Set the TOC to accepted')
+        add_usr.add_argument('-p', '--password', default=None, help='Set a new password')
+        add_usr.add_argument('-d', '--disabled', default=None, action='store_true', help='Disable the account')
+        # Delete
+        delete = subparsers_user.add_parser('delete', help="Delete a user.")
+        delete.add_argument('id', help='ID of the user to delete.')
+        # Edit
+        edit = subparsers_user.add_parser('edit', help="Edit a user.")
+        edit.add_argument('id', help='ID of the user to edit.')
+        edit.add_argument('-e', '--email', help='User email address.')
+        edit.add_argument('-o', '--org-id', default=None, help='Organisation ID of the user.')
+        edit.add_argument('-r', '--role-id', default=None, help='Role of the user')
+        edit.add_argument('-g', '--gpgkey', default=None, help='Path to the GPG public key export')
+        edit.add_argument('-c', '--change-pw', default=None, action='store_true', help='Force thanging the password after next login')
+        edit.add_argument('-t', '--termsaccepted', default=None, action='store_true', help='Set the TOC to accepted')
+        edit.add_argument('-p', '--password', default=None, help='Set a new password')
+        edit.add_argument('-d', '--disabled', default=None, action='store_true', help='Disable the account')
+
+        # Role
+        role = admin_parser.add_parser('role', help="Role managment.")
+        subparsers_role = role.add_subparsers(dest='role')
+        # Get
+        display = subparsers_role.add_parser('display', help="Display all the roles.")
+        # Search
+        search = subparsers_role.add_parser('search', help="Search a role by name.")
+        search.add_argument('name', help='(Partial) name of the role.')
+
+        # Tags
+        t = admin_parser.add_parser('tag', help="Tag managment.")
+        subparsers_tag = t.add_subparsers(dest='tag')
+        # Get
+        display = subparsers_tag.add_parser('display', help="Display all the tags.")
+        # Search
+        search = subparsers_tag.add_parser('search', help="Search a tag by name.")
+        search.add_argument('name', help='(Partial) name of the tag.')
 
         self.categories = {0: 'Payload delivery', 1: 'Artifacts dropped', 2: 'Payload installation', 3: 'External analysis'}
 
@@ -254,52 +351,6 @@ class MISP(Module):
             __sessions__.new(misp_event=MispEvent(misp_event, self.offline_mode))
             self.log('info', 'No known (in Viper) samples in that event.')
 
-    # ####### Helpers for check_hashes ########
-
-    def _prepare_attributes(self, md5, sha1, sha256, link, base_attr, event_hashes, sample_hashes, misp_event):
-        new_md5 = False
-        new_sha1 = False
-        new_sha256 = False
-        if md5 not in event_hashes and md5 not in sample_hashes:
-            new_md5 = True
-        if sha1 not in event_hashes:
-            new_sha1 = True
-        if sha256 not in event_hashes:
-            new_sha256 = True
-
-        curattr = None
-        if base_attr.get(sha256):
-            curattr = base_attr.get(sha256)
-        elif base_attr.get(sha1):
-            curattr = base_attr.get(sha1)
-        else:
-            curattr = base_attr.get(md5)
-
-        if new_sha256:
-            misp_event.add_attribute('sha256', sha256, **curattr)
-        if new_sha1:
-            misp_event.add_attribute('sha1', sha1, **curattr)
-        if new_md5:
-            misp_event.add_attribute('md5', md5, **curattr)
-
-        if not link[0]:
-            curattr['to_ids'] = False
-            curattr['category'] = 'External analysis'
-            misp_event.add_attribute('link', link[1], **curattr)
-        return misp_event
-
-    def _populate(self, event, original_attributes):
-        if len(event.attributes) == original_attributes:
-            self.log('info', "No new attributes to add.")
-            return
-        event.timestamp = int(time.time())
-        result = self.misp.update(event._json())
-        if not self._has_error_message(result):
-            self.log('success', "All attributes updated successfully")
-            __sessions__.new(misp_event=MispEvent(result, self.offline_mode))
-
-    # ####### Helpers for add ########
-
     def _find_related_id(self, event):
         if not event.RelatedEvent:
             return []
@@ -308,59 +359,36 @@ class MISP(Module):
         to_return.sort(key=lambda tup: tup[0])
         return to_return
 
-    def _check_add(self, new_event):
-        old_related = self._find_related_id(__sessions__.current.misp_event.event)
-        new_related = self._find_related_id(new_event)
-        old_related_ids = [i[0] for i in old_related]
-        for related, title in new_related:
-            if related not in old_related_ids:
-                self.log('success', 'New related event: {}/events/view/{} - {}'.format(self.url.rstrip('/'), related, title))
-            else:
-                self.log('info', 'Related event: {}/events/view/{} - {}'.format(self.url.rstrip('/'), related, title))
-        __sessions__.new(misp_event=MispEvent(new_event, self.offline_mode))
+    def _dump(self, event=None):
+        event_path = os.path.join(self.cur_path, 'misp_events')
+        if not os.path.exists(event_path):
+            os.makedirs(event_path)
 
-    # ####### Helpers for open ########
+        if not event:
+            to_dump = __sessions__.current.misp_event.event
+        elif isinstance(event, MISPEvent):
+            to_dump = event
+        else:
+            to_dump = MISPEvent()
+            to_dump.load(event)
+        if to_dump.id:
+            filename = str(to_dump.id)
+        elif (__sessions__.is_attached_misp(True) and
+                __sessions__.current.misp_event.current_dump_file):
+            filename = __sessions__.current.misp_event.current_dump_file
+        else:
+            i = 1
+            while True:
+                filename = 'new_event_{}.json'.format(i)
+                if not os.path.exists(os.path.join(event_path, filename)):
+                    break
+                i += 1
 
-    def _load_tmp_samples(self):
-        tmp_samples = []
-        samples_path = os.path.join(self.cur_path, 'misp_samples')
-        path = os.path.join(samples_path, '*')
-        for p in glob.glob(path):
-            eid = os.path.basename(p)
-            fullpath = os.path.join(samples_path, eid, '*')
-            for p in glob.glob(fullpath):
-                name = os.path.basename(p)
-                tmp_samples.append((eid, p, name))
-        return tmp_samples
-
-    def _display_tmp_files(self):
-        cureid = None
-        if __sessions__.is_attached_misp(True):
-            cureid = self._get_eventid()
-        header = ['Sample ID', 'Current', 'Event ID', 'Filename']
-        rows = []
-        i = 0
-        tmp_samples = self._load_tmp_samples()
-        if len(tmp_samples) == 0:
-            self.log('warning', 'No temporary samples available.')
-            return
-        for eid, path, name in tmp_samples:
-            if eid == cureid:
-                rows.append((i, '*', eid, name))
-            else:
-                rows.append((i, '', eid, name))
-            i += 1
-        self.log('table', dict(header=header, rows=rows))
-
-    def _clean_tmp_samples(self, eid):
-        samples_path = os.path.join(self.cur_path, 'misp_samples')
-        to_remove = os.path.join(samples_path)
-        if eid != 'all':
-            to_remove = os.path.join(to_remove, eid)
-        if os.path.exists(to_remove):
-            shutil.rmtree(to_remove)
-            return True
-        return False
+        path = os.path.join(event_path, filename)
+        with open(path, 'w') as f:
+            json.dump(to_dump, f, cls=EncodeFull)
+        self.log('success', '{} stored successfully.'.format(filename.rstrip('.json')))
+        return filename
 
     # ##########################################
 
@@ -384,65 +412,6 @@ class MISP(Module):
         with open(rule_path, 'wb') as f:
             f.write(data.encode('utf-8'))
         self.log('success', 'The yara rules of event {} have been downloaded: {}'.format(self.args.event, rule_path))
-
-    def download(self):
-        if self.offline_mode:
-            self.log('error', 'Offline mode, unable to dodnload a sample')
-            return
-        ok = False
-        data = None
-        if self.args.hash:
-            ok, data = self.misp.download_samples(sample_hash=self.args.hash)
-        elif self.args.list is not None:
-            list_events = []
-            if len(self.args.list) == 0:
-                event_path = os.path.join(self.cur_path, 'misp_events')
-                for eid, path, title in self._get_local_events(event_path):
-                    list_events.append(eid)
-            else:
-                list_events = self.args.list
-
-            all_data = []
-            for eid in list_events:
-                me = MISPEvent()
-                me.load(self.misp.get(eid))
-                ok, data = self.misp.download_samples(event_id=me.id)
-                if not ok:
-                    self.log('error', data)
-                    continue
-                if data:
-                    all_data += data
-            data = all_data
-        else:
-            event_id = self._get_eventid()
-            if event_id is None:
-                return
-            ok, data = self.misp.download_samples(event_id=event_id)
-
-            if not ok:
-                self.log('error', data)
-                return
-        to_print = []
-        samples_path = os.path.join(self.cur_path, 'misp_samples')
-        for d in data:
-            eid, filename, payload = d
-            path = os.path.join(samples_path, eid, filename)
-            if not os.path.exists(os.path.dirname(path)):
-                os.makedirs(os.path.dirname(path))
-            with open(path, 'w') as f:
-                f.write(payload.getvalue())
-            to_print.append((eid, path))
-
-        if len(to_print) == 1:
-            self.log('success', 'The sample has been downloaded from Event {}'.format(to_print[0][0]))
-            event = self.misp.get(to_print[0][0])
-            if not self._has_error_message(event):
-                return __sessions__.new(to_print[0][1], MispEvent(event, self.offline_mode))
-        elif len(to_print) > 1:
-            self.log('success', 'The following files have been downloaded:')
-            self._display_tmp_files()
-        else:
-            self.log('warning', 'No samples available.')
 
     def upload(self):
         if self.offline_mode:
@@ -473,99 +442,6 @@ class MISP(Module):
             full_event = self.misp.get(event_id)
             if not self._has_error_message(full_event):
                 return __sessions__.new(misp_event=MispEvent(full_event, self.offline_mode))
-
-    def check_hashes(self):
-        if self.offline_mode:
-            self.log('error', 'Offline mode, unable to query VirusTotal')
-            return
-        event_id = self._get_eventid()
-        if event_id is None:
-            return
-        event = self.misp.get(event_id)
-        if self._has_error_message(event):
-            return
-
-        misp_event = MISPEvent()
-        misp_event.load(event)
-        event_hashes = []
-        sample_hashes = []
-        base_new_attributes = {}
-        for a in misp_event.attributes:
-            h = None
-            if a.type in ('md5', 'sha1', 'sha256'):
-                h = a.value
-                event_hashes.append(h)
-            elif a.type in ('filename|md5', 'filename|sha1', 'filename|sha256', 'malware-sample'):
-                h = a.value.split('|')[1]
-                event_hashes.append(h)
-            if h is not None:
-                base_new_attributes[h] = {"category": a.category,
-                                          "comment": '{} - Xchecked via VT: {}'.format(a.comment, h),
-                                          "to_ids": a.to_ids,
-                                          "Tag": a.Tag,
-                                          "distribution": a.distribution}
-
-        unk_vt_hashes = []
-        vt_request = {'apikey': cfg.virustotal.virustotal_key}
-        # Make sure to start getting reports for the longest possible hashes (reduce risks of collisions)
-        hashes_to_check = sorted(event_hashes, key=len)
-        original_attributes = len(misp_event.attributes)
-        if cfg.virustotal.virustotal_has_private_key is False:
-            quota = 4
-            timeout = datetime.datetime.now() + datetime.timedelta(minutes=1)
-
-        while len(hashes_to_check) > 0:
-            vt_request['resource'] = hashes_to_check.pop()
-            try:
-                response = requests.post(cfg.misp.misp_vturl, data=vt_request)
-            except requests.ConnectionError:
-                self.log('error', 'Failed to connect to VT for {}'.format(vt_request['resource']))
-                return
-            if response.status_code == 403:
-                self.log('error', 'This command requires virustotal API key')
-                self.log('error', 'Please check that your key have the right permissions')
-                return
-            try:
-                result = response.json()
-            except:
-                self.log('error', 'Unable to get the report of {}'.format(vt_request['resource']))
-                continue
-            if result['response_code'] == 1:
-                md5 = result['md5']
-                sha1 = result['sha1']
-                sha256 = result['sha256']
-                hashes_to_check = [eh for eh in hashes_to_check if eh not in (md5, sha1, sha256)]
-                link = [False, result['permalink']]
-                # Do not re-add a link
-                for a in misp_event.attributes:
-                    if a.value == link[1]:
-                        link[0] = True
-                if md5 in sample_hashes:
-                    self.log('success', 'Sample available in MISP:')
-                else:
-                    self.log('success', 'Sample available in VT:')
-                if self.args.populate:
-                    misp_event = self._prepare_attributes(md5, sha1, sha256, link, base_new_attributes, event_hashes, sample_hashes, misp_event)
-                self.log('item', '{}\n\t{}\n\t{}\n\t{}'.format(link[1], md5, sha1, sha256))
-                if cfg.virustotal.virustotal_has_private_key is False:
-                    if quota > 0:
-                        quota -= 1
-                    else:
-                        waiting_time = (timeout - datetime.datetime.now()).seconds
-                        if waiting_time > 0:
-                            self.log('warning', 'No private API key, 4 queries/min is the limit. Waiting for {} seconds.'.format(waiting_time))
-                            time.sleep(waiting_time)
-                        quota = 4
-                        timeout = datetime.datetime.now() + datetime.timedelta(minutes=1)
-            else:
-                unk_vt_hashes.append(vt_request['resource'])
-
-        if self.args.populate:
-            self._populate(misp_event, original_attributes)
-        if len(unk_vt_hashes) > 0:
-            self.log('error', 'Unknown on VT:')
-            for h in unk_vt_hashes:
-                self.log('item', '{}'.format(h))
 
     def searchall(self):
         if self.args.query:
@@ -610,33 +486,6 @@ class MISP(Module):
                 self._search_local_hashes(event, open_session)
                 self._dump(event)
 
-    def create_event(self):
-        if self.args.threat is not None:
-            # Dirty trick to keep consistency in the module: the threat level in the upload
-            # API can go from 0 import to 3 but it is 1 to 4 in the event mgmt API.
-            # It will be fixed in a near future, in the meantime, we do that:
-            self.args.threat += 1
-
-        if not self.args.info:
-            self.log('error', 'Info field is required for a new event')
-        info = ' '.join(self.args.info)
-
-        misp_event = MISPEvent()
-        misp_event.set_all_values(info=info, distribution=self.args.distrib,
-                                  threat_level_id=self.args.threat, analysis=self.args.analysis,
-                                  date=self.args.date)
-        self._search_local_hashes(misp_event)
-        if self.offline_mode:
-            # New event created locally, no ID
-            __sessions__.current.misp_event.current_dump_file = self._dump()
-            __sessions__.current.misp_event.offline()
-        else:
-            misp_event = self.misp.add_event(json.dumps(misp_event, cls=EncodeUpdate))
-            if self._has_error_message(misp_event):
-                return
-            __sessions__.new(misp_event=MispEvent(misp_event, self.offline_mode))
-            self._dump()
-
     def publish(self):
         __sessions__.current.misp_event.event.publish()
         if self.offline_mode:
@@ -646,31 +495,6 @@ class MISP(Module):
             if not self._has_error_message(event):
                 self.log('success', 'Event {} published.'.format(event['Event']['id']))
                 __sessions__.new(misp_event=MispEvent(event, self.offline_mode))
-
-    def open(self):
-        if self.args.list:
-            self._display_tmp_files()
-        elif self.args.delete:
-            if self.args.delete != 'all':
-                try:
-                    int(self.args.delete)
-                except:
-                    self.log('error', 'You can only delete all the samples of the samples of a specific event ID.')
-                    return
-            if self._clean_tmp_samples(self.args.delete):
-                self.log('success', 'Successfully removed.')
-            else:
-                self.log('error', 'Nothing to remove.')
-        else:
-            tmp_samples = self._load_tmp_samples()
-            try:
-                eid, path, name = tmp_samples[int(self.args.sid)]
-            except IndexError:
-                self.log('error', 'Invalid sid, please use misp open -l.')
-                return
-            event = self.misp.get(eid)
-            if not self._has_error_message(event):
-                return __sessions__.new(path, MispEvent(event, self.offline_mode))
 
     def show(self):
         current_event = __sessions__.current.misp_event.event
@@ -700,312 +524,9 @@ class MISP(Module):
         if __sessions__.current.misp_event.event.id:
             self.log('info', 'Link to Event: {}/events/view/{}'.format(self.url.rstrip('/'), __sessions__.current.misp_event.event.id))
 
-    def _change_event(self):
-        if self.offline_mode:
-            self._dump()
-        else:
-            if __sessions__.current.misp_event.event.id:
-                event = self.misp.update(__sessions__.current.misp_event.event._json())
-            else:
-                event = self.misp.add_event(json.dumps(__sessions__.current.misp_event.event, cls=EncodeUpdate))
-            if self._has_error_message(event):
-                return
-            try:
-                me = MISPEvent()
-                me.load(event)
-                self._check_add(me)
-            except Exception as e:
-                self.log('error', e)
-
-    def add_hashes(self):
-        if self.args.filename is None and self.args.md5 is None and self.args.sha1 is None and self.args.sha256 is None:
-            if not __sessions__.is_attached_file(True):
-                self.log('error', "Not attached to a file, please set the hashes manually.")
-                return False
-            __sessions__.current.misp_event.event.add_attribute('filename|md5', '{}|{}'.format(
-                __sessions__.current.file.name, __sessions__.current.file.md5), comment=__sessions__.current.file.tags)
-            __sessions__.current.misp_event.event.add_attribute('filename|sha1', '{}|{}'.format(
-                __sessions__.current.file.name, __sessions__.current.file.sha1), comment=__sessions__.current.file.tags)
-            __sessions__.current.misp_event.event.add_attribute('filename|sha256', '{}|{}'.format(
-                __sessions__.current.file.name, __sessions__.current.file.sha256), comment=__sessions__.current.file.tags)
-        else:
-            if self.args.filename:
-                if self.args.md5:
-                    __sessions__.current.misp_event.event.add_attribute('filename|md5', '{}|{}'.format(
-                        self.args.filename, self.args.md5))
-                if self.args.sha1:
-                    __sessions__.current.misp_event.event.add_attribute('filename|sha1', '{}|{}'.format(
-                        self.args.filename, self.args.sha1))
-                if self.args.sha256:
-                    __sessions__.current.misp_event.event.add_attribute('filename|sha256', '{}|{}'.format(
-                        self.args.filename, self.args.sha256))
-            else:
-                if self.args.md5:
-                    __sessions__.current.misp_event.event.add_attribute('md5', self.args.md5)
-                if self.args.sha1:
-                    __sessions__.current.misp_event.event.add_attribute('sha1', self.args.sha1)
-                if self.args.sha256:
-                    __sessions__.current.misp_event.event.add_attribute('sha256', self.args.sha256)
-        self._change_event()
-
-    def add(self):
-        __sessions__.current.misp_event.event.add_attribute(self.args.add, ' '.join(vars(self.args).get(self.args.add)))
-        self._change_event()
-
-    def version(self):
-        if self.offline_mode:
-            self.log('error', 'Offline mode, unable to check versions')
-            return
-        api_ok = True
-
-        api_version = self.misp.get_api_version()
-        self.log('info', 'The version of your MISP API is: {}'.format(api_version['version']))
-        api_version_master = self.misp.get_api_version_master()
-        if self._has_error_message(api_version_master):
-            api_ok = False
-        else:
-            self.log('info', 'The version of MISP API master branch is: {}'.format(api_version_master['version']))
-
-        if api_ok:
-            if api_version['version'] == api_version_master['version']:
-                self.log('success', 'Congratulation, the MISP API installed is up-to-date')
-            else:
-                self.log('warning', 'The MISP API installed is outdated, you should update to avoid issues.')
-
-        pymisp_recommended = self.misp.get_recommended_api_version()
-        if self._has_error_message(pymisp_recommended):
-            self.log('warning', "The MISP instance you're using doesn't have a recomended PyMISP version, update recommended.")
-        else:
-            self.log('info', 'The recommended version of PyMISP: {}'.format(pymisp_recommended['version']))
-            for a, b in zip(pymisp_recommended['version'].split('.'), api_version['version'].split('.')):
-                if a != b:
-                    self.log('warning', "You're not using the recommended PyMISP version for this instance.")
-                    break
-
-        instance_ok = True
-
-        misp_version = self.misp.get_version()
-        if self._has_error_message(misp_version):
-            instance_ok = False
-        else:
-            self.log('info', 'The version of your MISP instance is: {}'.format(misp_version['version']))
-
-        misp_version_master = self.misp.get_version_master()
-        if self._has_error_message(misp_version_master):
-            instance_ok = False
-        else:
-            self.log('info', 'The version of MISP master branch is: {}'.format(misp_version_master['version']))
-
-        if instance_ok:
-            if misp_version['version'] == misp_version_master['version']:
-                self.log('success', 'Congratulation, your MISP instance is up-to-date')
-            else:
-                master_major, master_minor, master_hotfix = misp_version_master['version'].split('.')
-                major, minor, hotfix = misp_version['version'].split('.')
-                if master_major < major or master_minor < minor or master_hotfix < hotfix:
-                    self.log('warning', 'Your MISP instance is more recent than master, you must be using a beta version and probably know what you are doing. Enjoy!')
-                else:
-                    self.log('warning', 'Your MISP instance is outdated, you should update to avoid issues with the API.')
-
-    def _get_local_events(self, path):
-        tmp_local = []
-        path = os.path.join(path, '*')
-        for p in glob.glob(path):
-            eid = os.path.basename(p).rstrip('.json')
-            try:
-                with open(p, 'r') as f:
-                    e_json = json.load(f)
-                tmp_local.append((eid, p, e_json['Event']['info']))
-            except Exception as e:
-                self.log('error', 'Unable to open {}: {}'.format(p, e))
-        return tmp_local
-
-    def _dump(self, event=None):
-        event_path = os.path.join(self.cur_path, 'misp_events')
-        if not os.path.exists(event_path):
-            os.makedirs(event_path)
-
-        if not event:
-            to_dump = __sessions__.current.misp_event.event
-        elif isinstance(event, MISPEvent):
-            to_dump = event
-        else:
-            to_dump = MISPEvent()
-            to_dump.load(event)
-        if to_dump.id:
-            filename = str(to_dump.id)
-        elif (__sessions__.is_attached_misp(True) and
-                __sessions__.current.misp_event.current_dump_file):
-            filename = __sessions__.current.misp_event.current_dump_file
-        else:
-            i = 1
-            while True:
-                filename = 'new_event_{}.json'.format(i)
-                if not os.path.exists(os.path.join(event_path, filename)):
-                    break
-                i += 1
-
-        path = os.path.join(event_path, filename)
-        with open(path, 'w') as f:
-            json.dump(to_dump, f, cls=EncodeFull)
-        self.log('success', '{} stored successfully.'.format(filename.rstrip('.json')))
-        return filename
-
-    def store(self):
-        try:
-            event_path = os.path.join(self.cur_path, 'misp_events')
-            if not os.path.exists(event_path):
-                os.mkdir(event_path)
-            if self.args.list:
-                header = ['Event ID', 'Title']
-                rows = []
-                for eid, path, title in self._get_local_events(event_path):
-                    rows.append((eid, title))
-                self.log('table', dict(header=header, rows=sorted(rows, key=lambda i: (int(i[0].split('_')[-1])))))
-            elif self.args.update:
-                if self.offline_mode:
-                    self.log('error', 'Offline mode, cannot update locally stored events.')
-                    return
-                for eid, path, title in self._get_local_events(event_path):
-                    event = self.misp.get(eid)
-                    with open(path, 'w') as f:
-                        f.write(json.dumps(event))
-                    self.log('success', '{} updated successfully.'.format(eid))
-            elif self.args.sync:
-                if self.offline_mode:
-                    self.log('error', 'Offline mode, cannot synchronize locally stored events.')
-                    return
-                for eid, path, title in self._get_local_events(event_path):
-                    __sessions__.close()
-                    event = MISPEvent()
-                    event.load(path)
-                    if 'new_event_' in path:
-                        event = self.misp.add_event(json.dumps(event, cls=EncodeUpdate))
-                        try:
-                            self._dump(event)
-                            os.remove(path)
-                        except Exception as e:
-                            self.log('error', 'Unable to create new event: {}.'.format(e))
-                    else:
-                        eid = event.id
-                        try:
-                            event = self.misp.update(event._json())
-                        except Exception as e:
-                            self.log('error', 'Unable to update event {}: {}.'.format(eid, e))
-
-                    if self._has_error_message(event):
-                        return
-            elif self.args.delete:
-                path = os.path.join(event_path, '{}.json'.format(self.args.delete))
-                if os.path.exists(path):
-                    os.remove(path)
-                    self.log('success', '{} removed successfully.'.format(self.args.delete))
-                else:
-                    self.log('error', '{} does not exists.'.format(self.args.delete))
-            elif self.args.open:
-                filename = '{}.json'.format(self.args.open)
-                path = os.path.join(event_path, filename)
-                if os.path.exists(path):
-                    try:
-                        with open(path, 'r') as f:
-                            e_json = json.load(f)
-                        __sessions__.new(misp_event=MispEvent(e_json, self.offline_mode))
-                        __sessions__.current.misp_event.current_dump_file = filename
-                    except Exception as e:
-                        self.log('error', 'Unable to open {}: {}'.format(path, e))
-                else:
-                    self.log('error', '{} does not exists.'.format(self.args.open))
-            elif __sessions__.is_attached_misp():
-                self._dump()
-        except IOError as e:
-            self.log('error', e.strerror)
-
-    def tag(self):
-        if not HAVE_PYTAX:
-            self.log('error', "Missing dependency, install PyTaxonomies (`pip install git+https://github.com/MISP/PyTaxonomies.git`)")
-            return
-
-        try:
-            taxonomies = Taxonomies(manifest_path=os.path.join(self.local_dir_taxonomies, 'MANIFEST.json'))
-        except Exception as e:
-            self.log('error', 'Unable to open the taxonomies, please fix the config file ([misp] - misp_taxonomies_directory): {}'.format(e))
-            return
-
-        if self.args.list:
-            self.log('table', dict(header=['Name', 'Description'], rows=[(title, tax.description)
-                                                                         for title, tax in taxonomies.items()]))
-        elif self.args.search:
-            matches = taxonomies.search(self.args.search)
-            if not matches:
-                self.log('error', 'No tags matching "{}".'.format(self.args.search))
-                return
-            self.log('success', 'Tags matching "{}":'.format(self.args.search))
-            for t in taxonomies.search(self.args.search):
-                self.log('item', t)
-        elif self.args.details:
-            taxonomy = taxonomies.get(self.args.details)
-            if not taxonomy:
-                self.log('error', 'No taxonomy called "{}".'.format(self.args.details))
-                return
-            if taxonomy.description:
-                self.log('info', taxonomy.description)
-            elif taxonomy.expanded:
-                self.log('info', taxonomy.expanded)
-            if taxonomy.refs:
-                self.log('info', 'References:')
-                for r in taxonomy.refs:
-                    self.log('item', r)
-            if not taxonomy.has_entries():
-                header = ['Description', 'Predicate', 'Machinetag']
-                rows = []
-                for p in taxonomy.predicates.values():
-                    rows.append([p.description, p.predicate, taxonomy.make_machinetag(p)])
-                self.log('table', dict(header=header, rows=rows))
-            else:
-                for p in taxonomy.predicates.values():
-                    if p.description:
-                        self.log('info', p.description)
-                    elif p.expanded:
-                        self.log('info', p.expanded)
-                    else:
-                        self.log('info', p.predicate)
-
-                    if not p.entries:
-                        self.log('item', taxonomy.make_machinetag(p))
-                    else:
-                        header = ['Description', 'Predicate', 'Machinetag']
-                        rows = []
-                        for e in p.entries.values():
-                            if e.description:
-                                descr = e.description
-                            else:
-                                descr = e.expanded
-                            rows.append([descr, e.value, taxonomy.make_machinetag(p, e)])
-                        self.log('table', dict(header=header, rows=rows))
-        elif self.args.event:
-            if not __sessions__.is_attached_misp():
-                return
-            try:
-                taxonomies.revert_machinetag(self.args.event)
-            except:
-                self.log('error', 'Not a valid machine tag available in misp-taxonomies: "{}".'.format(self.args.event))
-                return
-            __sessions__.current.misp_event.event.add_tag(self.args.event)
-            self._change_event()
-        elif self.args.attribute:
-            if not __sessions__.is_attached_misp():
-                return
-            identifier, tag = self.args.attribute
-            try:
-                taxonomies.revert_machinetag(tag)
-            except:
-                self.log('error', 'Not a valid machine tag available in misp-taxonomies: "{}".'.format(tag))
-                return
-            __sessions__.current.misp_event.event.add_attribute_tag(tag, identifier)
-            self._change_event()
-
     def run(self):
         super(MISP, self).run()
+
         if self.args is None:
             return
 
@@ -1042,6 +563,19 @@ class MISP(Module):
             verify = False
         else:
             verify = cfg.misp.misp_verify
+
+        # Capture default distribution and sharing group settings. Backwards compatability and empty string check
+        self.distribution = cfg.misp.get("misp_distribution", None)
+        self.distribution = None if self.distribution == "" else self.distribution
+        if type(self.distribution) not in (type(None), int):
+            self.distribution = None
+            self.log('info', "The distribution stored in viper config is not an integer, setting to None")
+
+        self.sharinggroup = cfg.misp.get("misp_sharinggroup", None)
+        self.sharinggroup = None if self.sharinggroup == "" else self.sharinggroup
+        if type(self.sharinggroup) not in (type(None), int):
+            self.sharinggroup = None
+            self.log('info', "The sharing group stored in viper config is not an integer, setting to None")
 
         if cfg.misp.misp_taxonomies_directory:
             self.local_dir_taxonomies = cfg.misp.misp_taxonomies_directory
@@ -1083,7 +617,7 @@ class MISP(Module):
             elif self.args.subname == 'show':
                 self.show()
             elif self.args.subname == 'open':
-                self.open()
+                self.open_samples()
             elif self.args.subname == 'publish':
                 self.publish()
             elif self.args.subname == 'version':
@@ -1092,6 +626,8 @@ class MISP(Module):
                 self.store()
             elif self.args.subname == 'tag':
                 self.tag()
+            elif self.args.subname == 'admin':
+                self.admin()
             else:
                 self.log('error', "No calls defined for this command.")
         except requests.exceptions.HTTPError as e:
