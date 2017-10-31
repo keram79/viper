@@ -11,6 +11,17 @@ from optparse import OptionParser
 from sqlalchemy import create_engine
 from datetime import datetime
 
+from alembic.runtime.environment import EnvironmentContext
+from alembic.script import ScriptDirectory
+from alembic.config import Config as AlembicConfig
+from alembic import command
+import glob
+
+# in any application, outside of an env.py script
+from alembic.migration import MigrationContext
+from sqlalchemy import create_engine
+
+
 try:
     from io import BytesIO
 except ImportError:
@@ -35,6 +46,8 @@ except NameError:
 
 url = 'https://github.com/viper-framework/viper/archive/master.zip'
 
+alembic_cfg = AlembicConfig()
+alembic_cfg.set_main_option("script_location", "viper:alembic")
 
 # Taken from the Python Cookbook.
 def path_split_all(path):
@@ -145,25 +158,34 @@ def update():
     zip_data.close()
 
 
-def update_db():
+def migrate_db_to_alembic_management(db_path, rev="head"):
     print_item("Backing up Sqlite DB")
 
+    db_url = "sqlite:///{}".format(db_path)
+    db_dir = os.path.dirname(db_path)
+
     # backup of database name with a timestamp to avoid to be overwritten
-    db_backupname = "viper_{0}.db.bak".format(datetime.utcnow().strftime("%Y%m%d-%H%M%S"))
+    db_backup_path = os.path.join(db_dir, "viper_{0}.db.bak".format(datetime.utcnow().strftime("%Y%m%d-%H%M%S")))
+    db_backup_url = "sqlite:///{}".format(db_backup_path)
 
     try:
-        os.rename('viper.db', db_backupname)
+        os.rename(db_path, db_backup_path)
     except Exception as e:
         print_error("Failed to Backup. {0} Stopping".format(e))
         return
 
-    print_item("Creating New DataBase File")
-    from viper.core.database import Database
-    Database()
+    # Alembic setup
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+    script = ScriptDirectory.from_config(alembic_cfg)
+    engine = create_engine(db_url)
+    conn = engine.connect()
+    context = MigrationContext.configure(conn, opts={"script":script})
+
+    print_item("Creating New DataBase File (Revision: {})".format(rev))
+    command.upgrade(alembic_cfg, rev)
 
     print_item("Connecting to Viper Databases")
-    old_engine = create_engine('sqlite:///{0}'.format(db_backupname))
-    db_path = os.path.join(__project__.get_path(), 'viper.db')
+    old_engine = create_engine('sqlite:///{0}'.format(db_backup_path))
     new_engine = create_engine('sqlite:///{0}'.format(db_path))
 
     print_item("Reading data from Old Database")
@@ -208,7 +230,6 @@ def update_db():
 
     print_info("Update Complete")
 
-
 if __name__ == '__main__':
     parser = OptionParser(usage='usage: %prog -c|-d')
     parser.add_option("-d", "--db", action='store_true', default=False, help="Update DB Tables")
@@ -227,11 +248,43 @@ if __name__ == '__main__':
         sys.exit()
 
     if options.db:
+        # TODO(frennkie) remove/update these infos/warnings
         print_warning("To update Projects you will need to copy their viper.db file in to the main viper folder")
         print_warning("Run the DB update then move the new db file back to the project folder. ")
         print_info("Updating to New DB format")
 
-        update_db()
+        dbs = [("{}/viper.db".format(__project__.base_path))]
+        dbs.extend(glob.glob("{}/projects/*/viper.db".format(__project__.base_path)))
+
+        for db_path in dbs:
+            # set URL
+            db_url = "sqlite:///{}".format(db_path)
+            print_info("running on: {} (URL: {})".format(db_path, db_url))
+
+            # Alembic setup
+            alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+            script = ScriptDirectory.from_config(alembic_cfg)
+            engine = create_engine(db_url)
+            conn = engine.connect()
+            context = MigrationContext.configure(conn, opts={"script":script})
+
+            heads = script.get_current_head()
+            current_rev = context.get_current_revision()
+
+            if not current_rev:
+                print_warning("this db has never seen an Alembic migration")
+                migrate_db_to_alembic_management(db_path, rev="74c7becae858")
+
+            elif current_rev == heads:
+                print_info("this db is up2date")
+            else:
+                print_info("this db need to be migrated to newer version")
+
+                print_warning("Migrating to HEAD..")
+                command.upgrade(alembic_cfg, "head")
+
+            #with EnvironmentContext(alembic_cfg, script):
+            #    script.run_env()
 
     if options.core:
         update()

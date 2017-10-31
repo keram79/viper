@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
-from sqlalchemy import Table, Index, create_engine, and_
+from sqlalchemy import Table, Index, MetaData, create_engine, and_
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref, sessionmaker
@@ -29,6 +29,15 @@ log = logging.getLogger('viper')
 cfg = __config__
 
 Base = declarative_base()
+
+# http://alembic.zzzcomputing.com/en/latest/naming.html
+Base.metadata = MetaData(naming_convention={
+    "ix": 'ix_%(column_0_label)s',
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s"
+})
 
 association_table = Table(
     'association',
