@@ -268,19 +268,19 @@ if __name__ == '__main__':
             conn = engine.connect()
             context = MigrationContext.configure(conn, opts={"script":script})
 
-            heads = script.get_current_head()
+            head = script.get_current_head()
             current_rev = context.get_current_revision()
 
             if not current_rev:
                 print_warning("this db has never seen an Alembic migration")
                 migrate_db_to_alembic_management(db_path, rev="74c7becae858")
 
-            elif current_rev == heads:
+            elif current_rev == head:
                 print_info("this db is up2date")
             else:
                 print_info("this db need to be migrated to newer version")
 
-                print_warning("Migrating to HEAD..")
+                print_warning("Migrating to head ({})".format(head))
                 command.upgrade(alembic_cfg, "head")
 
             #with EnvironmentContext(alembic_cfg, script):
