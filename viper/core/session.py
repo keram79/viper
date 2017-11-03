@@ -88,6 +88,7 @@ class Sessions(object):
                 session.file.id = row[0].id
                 session.file.name = row[0].name
                 session.file.tags = ', '.join(tag.to_dict()['tag'] for tag in row[0].tag)
+                session.file.filenames = ', '.join(filename.to_dict()['filename'] for filename in row[0].filename)
 
                 if row[0].parent:
                     session.file.parent = '{0} - {1}'.format(row[0].parent.name, row[0].parent.sha256)

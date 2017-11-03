@@ -257,11 +257,6 @@ class Database:
             db_path = os.path.join(__project__.get_path(), 'viper.db')
             self.engine = create_engine('sqlite:///{0}'.format(db_path), poolclass=NullPool)
 
-    def list_filenames(self):
-        session = self.Session()
-        rows = session.query(Filename).all()
-        return rows
-
     def add_tags(self, sha256, tags):
         session = self.Session()
 

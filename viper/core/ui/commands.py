@@ -612,6 +612,7 @@ class Info(Command):
                     ['SHA512', __sessions__.current.file.sha512],
                     ['SSdeep', __sessions__.current.file.ssdeep],
                     ['CRC32', __sessions__.current.file.crc32],
+                    ['Filenames', __sessions__.current.file.filenames],
                     ['Parent', __sessions__.current.file.parent],
                     ['Children', __sessions__.current.file.children]
                 ]

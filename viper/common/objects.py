@@ -103,6 +103,7 @@ class File(object):
         self.crc32 = ''
         self.ssdeep = ''
         self.tags = ''
+        self.filenames = ''
         self.parent = ''
         self.children = ''
 
