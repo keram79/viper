@@ -42,6 +42,7 @@ Base.metadata = MetaData(naming_convention={
 association_table = Table(
     'association',
     Base.metadata,
+    Column('filename_id', Integer, ForeignKey('filename.id')),
     Column('tag_id', Integer, ForeignKey('tag.id')),
     Column('note_id', Integer, ForeignKey('note.id')),
     Column('malware_id', Integer, ForeignKey('malware.id')),
@@ -66,6 +67,11 @@ class Malware(Base):
     created_at = Column(DateTime(timezone=False), default=datetime.now(), nullable=False)
     parent_id = Column(Integer(), ForeignKey('malware.id'))
     parent = relationship('Malware', lazy='subquery', remote_side=[id])
+    filename = relationship(
+        'Filename',
+        secondary=association_table,
+        backref=backref('malware')
+    )
     tag = relationship(
         'Tag',
         secondary=association_table,
@@ -127,6 +133,27 @@ class Malware(Base):
         self.ssdeep = ssdeep
         self.name = name
         self.parent = parent
+
+
+class Filename(Base):
+    __tablename__ = 'filename'
+
+    id = Column(Integer(), primary_key=True)
+    filename = Column(String(255), nullable=False, unique=True, index=True)
+
+    def to_dict(self):
+        row_dict = {}
+        for column in self.__table__.columns:
+            value = getattr(self, column.name)
+            row_dict[column.name] = value
+
+        return row_dict
+
+    def __repr__(self):
+        return "<Filename ('{0}','{1}')>".format(self.id, self.filename)
+
+    def __init__(self, filename):
+        self.filename = filename
 
 
 class Tag(Base):
@@ -229,6 +256,11 @@ class Database:
         else:
             db_path = os.path.join(__project__.get_path(), 'viper.db')
             self.engine = create_engine('sqlite:///{0}'.format(db_path), poolclass=NullPool)
+
+    def list_filenames(self):
+        session = self.Session()
+        rows = session.query(Filename).all()
+        return rows
 
     def add_tags(self, sha256, tags):
         session = self.Session()
