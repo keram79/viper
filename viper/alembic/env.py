@@ -58,16 +58,19 @@ def run_migrations_online():
     cmd_line_url = context.get_x_argument(as_dictionary=True).get('dbname')
     if cmd_line_url:
         connectable = create_engine(cmd_line_url)
+        render_as_batch_value = cmd_line_url.startswith('sqlite:///')
     else:
         connectable = engine_from_config(
             config.get_section(config.config_ini_section),
             prefix='sqlalchemy.',
             poolclass=pool.NullPool)
+        render_as_batch_value = config.get_main_option('sqlalchemy.url').startswith('sqlite:///')
 
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
-            target_metadata=target_metadata
+            target_metadata=target_metadata,
+            render_as_batch=render_as_batch_value
         )
 
         with context.begin_transaction():
