@@ -10,13 +10,19 @@ from datetime import datetime
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
 from sqlalchemy import Table, Index, MetaData, create_engine, and_
+
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref, sessionmaker
 from sqlalchemy.orm import subqueryload
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-from viper.common.out import print_warning, print_error, print_success
+from alembic import command
+from alembic.config import Config as AlembicConfig
+from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
+
+from viper.common.out import print_error, print_info, print_item, print_success, print_warning
 from viper.common.exceptions import Python2UnsupportedUnicode
 from viper.common.objects import File
 from viper.core.storage import get_sample_path, store_sample
@@ -699,3 +705,145 @@ class Database:
         session = self.Session()
         rows = session.query(Analysis).all()
         return rows
+
+
+# SQLAlchemy/Alembic database migration (update)
+def migrate_db_to_alembic_management(db_path, rev, verbose=False):
+
+    db_url = "sqlite:///{}".format(db_path)
+    db_dir = os.path.dirname(db_path)
+
+    # backup of database name with a timestamp to avoid to be overwritten
+    if verbose:
+        print_item("Backing up Sqlite DB")
+
+    db_backup_path = os.path.join(db_dir, "viper_{0}.db.bak".format(datetime.utcnow().strftime("%Y%m%d-%H%M%S")))
+    try:
+        os.rename(db_path, db_backup_path)
+    except Exception as e:
+        print_error("Failed to Backup. {0} Stopping".format(e))
+        return
+
+    # Alembic setup
+    alembic_cfg = AlembicConfig()
+    alembic_cfg.set_main_option("script_location", "viper:alembic")
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+
+    if verbose:
+        print_item("Creating New DataBase File (Revision: {})".format(rev))
+    command.upgrade(alembic_cfg, rev)
+
+    if verbose:
+        print_item("Connecting to Viper Databases")
+    old_engine = create_engine('sqlite:///{0}'.format(db_backup_path))
+    new_engine = create_engine('sqlite:///{0}'.format(db_path))
+
+    if verbose:
+        print_item("Reading data from Old Database")
+    malware = old_engine.execute('SELECT * FROM malware').fetchall()
+    association = old_engine.execute('SELECT * FROM association').fetchall()
+    notes = old_engine.execute('SELECT * FROM note').fetchall()
+    tags = old_engine.execute('SELECT * FROM tag').fetchall()
+
+    if verbose:
+        print_item(" Adding rows to New Database")
+
+    # Add all the rows back in
+    for row in notes:
+        new_engine.execute("INSERT INTO note VALUES ('{0}', '{1}', '{2}')".format(row[0], row[1], row[2]))
+
+    for row in tags:
+        new_engine.execute("INSERT INTO tag VALUES ('{0}', '{1}')".format(row[0], row[1]))
+
+    for row in malware:
+        new_engine.execute("INSERT INTO malware VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', "
+                           "'{5}', '{6}', '{7}', '{8}', '{9}', '{10}', '{11}', 'Null')".format(row[0], row[1], row[2],
+                                                                                               row[3], row[4], row[5],
+                                                                                               row[6], row[7], row[8],
+                                                                                               row[9], row[10], row[11])
+                           )
+
+    # Rebuild association table with foreign keys
+    for row in association:
+        if row[0] is None:
+            tag_id = "Null"
+        else:
+            tag_id = "(SELECT id from tag WHERE id='{0}')".format(row[0])
+        if row[1] is None:
+            note_id = "Null"
+        else:
+            note_id = "(SELECT id from note WHERE id='{0}')".format(row[1])
+        if row[2] is None:
+            malware_id = "Null"
+        else:
+            malware_id = "(SELECT id from malware WHERE id='{0}')".format(row[2])
+
+        new_engine.execute("INSERT INTO association VALUES ({0}, {1}, {2}, 'Null')".format(tag_id, note_id, malware_id))
+
+    if verbose:
+        print_info("Update Complete")
+
+
+def is_alembic_enabled(engine):
+    ctx = MigrationContext.configure(engine.connect())
+    if ctx.get_current_revision():
+        return True
+    else:
+        return False
+
+
+def is_alembic_up2date_with_rev(engine, rev):
+    context = MigrationContext.configure(engine.connect())
+
+    if context.get_current_revision() == rev:
+        return True
+    else:
+        return False
+
+
+def get_current_script_head(database_path):
+    # setup Alembic config and script
+    alembic_cfg = AlembicConfig()
+    alembic_cfg.set_main_option("script_location", "viper:alembic")
+    alembic_cfg.set_main_option("sqlalchemy.url", database_path)
+    script = ScriptDirectory.from_config(alembic_cfg)
+    return script.get_current_head()
+
+
+def ensure_database(database_path, verbose=False):
+    # set URL
+    database_url = "sqlite:///{}".format(database_path)
+    if verbose:
+        print_info("running on: {} (URL: {})".format(database_path, database_url))
+
+    # setup SQLAlchemy engine
+    engine = create_engine(database_url)
+
+    # setup Alembic config
+    alembic_cfg = AlembicConfig()
+    alembic_cfg.set_main_option("script_location", "viper:alembic")
+    alembic_cfg.set_main_option("sqlalchemy.url", database_path)
+
+    if not is_alembic_enabled(engine):
+        if verbose:
+            print_info("is_alembic_enabled: False")
+            print_warning("Database ({}) has never seen an Alembic migration".format(database_path))
+
+        # migrate to initial..
+        migrate_db_to_alembic_management(database_path, rev="74c7becae858", verbose=verbose)
+    else:
+        if verbose:
+            print_info("is_alembic_enabled: True")
+
+    current_head = get_current_script_head(database_path)
+    if is_alembic_up2date_with_rev(engine, current_head):
+        if verbose:
+            print_info("is_alembic_up2date_with_rev (Rev: {}): True".format(current_head))
+
+    else:
+        if verbose:
+            print_info("is_alembic_up2date_with_rev (Rev: {}): False".format(current_head))
+
+        if verbose:
+            print_warning("Migrating to head ({})".format(current_head))
+        command.upgrade(alembic_cfg, current_head)
