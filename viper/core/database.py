@@ -708,10 +708,14 @@ class Database:
 
 
 # SQLAlchemy/Alembic database migration (update)
-def migrate_db_to_alembic_management(db_path, rev, verbose=False):
+def migrate_db_to_alembic_management(database_path, rev, verbose=False):
+    # set URL and setup Alembic config
+    database_url = "sqlite:///{}".format(database_path)
+    alembic_cfg = AlembicConfig()
+    alembic_cfg.set_main_option("script_location", "viper:alembic")
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
 
-    db_url = "sqlite:///{}".format(db_path)
-    db_dir = os.path.dirname(db_path)
+    db_dir = os.path.dirname(database_path)
 
     # backup of database name with a timestamp to avoid to be overwritten
     if verbose:
@@ -719,7 +723,7 @@ def migrate_db_to_alembic_management(db_path, rev, verbose=False):
 
     db_backup_path = os.path.join(db_dir, "viper_{0}.db.bak".format(datetime.utcnow().strftime("%Y%m%d-%H%M%S")))
     try:
-        os.rename(db_path, db_backup_path)
+        os.rename(database_path, db_backup_path)
     except Exception as e:
         print_error("Failed to Backup. {0} Stopping".format(e))
         return
@@ -727,7 +731,7 @@ def migrate_db_to_alembic_management(db_path, rev, verbose=False):
     # Alembic setup
     alembic_cfg = AlembicConfig()
     alembic_cfg.set_main_option("script_location", "viper:alembic")
-    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
 
     if verbose:
         print_item("Creating New DataBase File (Revision: {})".format(rev))
@@ -736,7 +740,7 @@ def migrate_db_to_alembic_management(db_path, rev, verbose=False):
     if verbose:
         print_item("Connecting to Viper Databases")
     old_engine = create_engine('sqlite:///{0}'.format(db_backup_path))
-    new_engine = create_engine('sqlite:///{0}'.format(db_path))
+    new_engine = create_engine('sqlite:///{0}'.format(database_path))
 
     if verbose:
         print_item("Reading data from Old Database")
@@ -802,27 +806,28 @@ def is_alembic_up2date_with_rev(engine, rev):
 
 
 def get_current_script_head(database_path):
-    # setup Alembic config and script
+    # set URL and setup Alembic config
+    database_url = "sqlite:///{}".format(database_path)
     alembic_cfg = AlembicConfig()
     alembic_cfg.set_main_option("script_location", "viper:alembic")
-    alembic_cfg.set_main_option("sqlalchemy.url", database_path)
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
     script = ScriptDirectory.from_config(alembic_cfg)
     return script.get_current_head()
 
 
 def ensure_database(database_path, verbose=False):
-    # set URL
+    # set URL and setup Alembic config
     database_url = "sqlite:///{}".format(database_path)
+    alembic_cfg = AlembicConfig()
+    alembic_cfg.set_main_option("script_location", "viper:alembic")
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
     if verbose:
         print_info("running on: {} (URL: {})".format(database_path, database_url))
 
     # setup SQLAlchemy engine
     engine = create_engine(database_url)
-
-    # setup Alembic config
-    alembic_cfg = AlembicConfig()
-    alembic_cfg.set_main_option("script_location", "viper:alembic")
-    alembic_cfg.set_main_option("sqlalchemy.url", database_path)
 
     if not is_alembic_enabled(engine):
         if verbose:
