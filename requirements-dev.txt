@@ -1,4 +1,4 @@
-Django
+Django >= 2; python_version >= '3.5'
 SQLAlchemy
 beautifulsoup4
 bitstring
@@ -59,7 +59,11 @@ rarfile
 
 # MISP
 git+https://github.com/MISP/PyTaxonomies.git
-pymisp
+git+https://github.com/MISP/PyMISPGalaxies.git
+pymisp[fileobjects,virustotal] >= 2.4.84
 
 # Scraper
 git+https://github.com/viper-framework/ScrapySplashWrapper.git
+
+# Joe Sandbox
+jbxapi
