@@ -137,12 +137,13 @@ class File(object):
         self.ssdeep = obj.ssdeep
 
         # self.tags = db.list_tags()
-        self.tags = ', '.join(tag.to_dict()['tag'] for tag in db.list_tags())
+        self.tags = ', '.join(tag.to_dict()['tag'] for tag in db.list_tags_for_malware(self.sha256))
 
-        if obj.parent:
-            self.parent = '{0} - {1}'.format(obj.parent.name, obj.parent.sha256)
+        if obj.parent_id:
+            _parent = db.get_malware(obj.parent_id)
+            self.parent = '{0} - {1}'.format(_parent.name, _parent.sha256)
 
-        self.children = db.get_children(obj.parent_id)
+        self.children = db.get_children(obj.id)
 
     @property
     def data(self):
