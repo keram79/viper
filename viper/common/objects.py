@@ -89,7 +89,7 @@ class MispEvent(object):
 
 
 class File(object):
-    def __init__(self, path):
+    def __init__(self, path, from_file=True):
         self.id = None
         self.path = path
         self.name = ''
@@ -106,13 +106,43 @@ class File(object):
         self.parent = ''
         self.children = ''
 
-        if self.is_valid():
-            self.name = os.path.basename(self.path)
-            self.size = os.path.getsize(self.path)
-            self.type = self.get_type()
-            self.mime = self.get_mime()
-            self.get_hashes()
-            self.ssdeep = self.get_ssdeep()
+        if not self.is_valid():
+            raise ValueError("Invalid or non existent path: {}".format(path))
+
+        if from_file:
+            self.generate_from_file()
+
+    def generate_from_file(self):
+        self.name = os.path.basename(self.path)
+        self.size = os.path.getsize(self.path)
+        self.type = self.get_type()
+        self.mime = self.get_mime()
+        self.get_hashes()
+        self.ssdeep = self.get_ssdeep()
+
+    def populate_from_db(self, db):
+        _sha256 = File.gen_sha256_hash(self.path)
+        obj = db.get_malware_sha256(_sha256)
+
+        self.id = obj.id
+        self.name = obj.name
+        self.size = obj.size
+        self.type = obj.type
+        self.mime = obj.mime
+        self.md5 = obj.md5
+        self.sha1 = obj.sha1
+        self.sha256 = obj.sha256
+        self.sha512 = obj.sha512
+        self.crc32 = obj.crc32
+        self.ssdeep = obj.ssdeep
+
+        # self.tags = db.list_tags()
+        self.tags = ', '.join(tag.to_dict()['tag'] for tag in db.list_tags())
+
+        if obj.parent:
+            self.parent = '{0} - {1}'.format(obj.parent.name, obj.parent.sha256)
+
+        self.children = db.get_children(obj.parent_id)
 
     @property
     def data(self):
@@ -141,6 +171,18 @@ class File(object):
                                                 "Please use Python >= 3.4".format(self.path, err), "error")
 
         return True
+
+    @staticmethod
+    def gen_sha256_hash(path):
+        buf_size = 65536  # lets read stuff in 64kb chunks!
+        sha256 = hashlib.sha256()
+        with open(path, 'rb') as f:
+            while True:
+                data = f.read(buf_size)
+                if not data:
+                    break
+                sha256.update(data)
+        return sha256.hexdigest()
 
     def get_chunks(self):
         try:

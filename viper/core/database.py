@@ -221,6 +221,14 @@ class Database:
             db_path = os.path.join(__project__.get_path(), 'viper.db')
             self.engine = create_engine('sqlite:///{0}'.format(db_path), poolclass=NullPool)
 
+    def get_malware(self, malware_id):
+        session = self.Session()
+        return session.query(Malware).get(malware_id)
+
+    def get_malware_sha256(self, sha256):
+        session = self.Session()
+        return session.query(Malware).filter(Malware.sha256 == sha256).first()
+
     def add_tags(self, sha256, tags):
         session = self.Session()
 

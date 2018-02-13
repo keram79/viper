@@ -79,19 +79,11 @@ class Sessions(object):
             if self.is_set() and misp_event is None and self.current.misp_event:
                 session.misp_event = self.current.misp_event
 
-            # Open a session on the given file.
-            session.file = File(path)
             # Try to lookup the file in the database. If it is already present
             # we get its database ID, file name, and tags.
-            row = Database().find(key='sha256', value=session.file.sha256)
-            if row:
-                session.file.id = row[0].id
-                session.file.name = row[0].name
-                session.file.tags = ', '.join(tag.to_dict()['tag'] for tag in row[0].tag)
-
-                if row[0].parent:
-                    session.file.parent = '{0} - {1}'.format(row[0].parent.name, row[0].parent.sha256)
-                session.file.children = Database().get_children(row[0].id)
+            db = Database()
+            session.file = File(path, from_file=False)
+            session.file.populate_from_db(db)
 
             print_info("Session opened on {0}".format(path))
 
