@@ -218,6 +218,10 @@ class Database:
         else:
             self._connect_database("")
 
+        if not check_database(self.db_url):
+            print_error("You need to update your Viper database. Run 'python update-web -d'")
+            sys.exit()
+
         self.engine.echo = False
         self.engine.pool_timeout = 60
 
