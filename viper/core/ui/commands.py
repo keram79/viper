@@ -955,15 +955,19 @@ class Projects(Command):
 
             self.log('table', dict(header=['Project Name', 'Creation Time', 'Current'], rows=rows))
         elif args.switch:
-            if __sessions__.is_set():
-                __sessions__.close()
-                self.log('info', "Closed opened session")
+            if not db.supports_projects:
+                self.log('info', "The database type you are using does not support projects")
+                return
+            else:
+                if __sessions__.is_set():
+                    __sessions__.close()
+                    self.log('info', "Closed opened session")
 
-            __project__.open(args.switch)
-            self.log('info', "Switched to project {0}".format(bold(args.switch)))
+                __project__.open(args.switch)
+                self.log('info', "Switched to project {0}".format(bold(args.switch)))
 
-            # Need to re-initialize the Database to open the new SQLite file.
-            db.__init__()
+                # Need to re-initialize the Database to open the new SQLite file.
+                db.__init__()
         else:
             self.log('info', self.parser.print_usage())
 

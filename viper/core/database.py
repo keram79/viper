@@ -218,15 +218,14 @@ class Database:
         else:
             self._connect_database("")
 
-        if not check_database(self.db_url):
-            print_error("You need to update your Viper database. Run 'python update-web -d'")
-            sys.exit()
-
         self.engine.echo = False
         self.engine.pool_timeout = 60
 
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+
+        if not check_database(self.db_url):
+            upgrade_database(self.db_url)
 
         self.added_ids = {}
         self.copied_id_sha256 = []
@@ -900,7 +899,8 @@ def upgrade_database(database_url, sqlite=True, create_backup=True, verbose=Fals
 
     if not _is_alembic_enabled(engine):
         log.warning("Database ({}) has never seen an Alembic migration".format(database_url))
-        print_warning("Database ({}) has never seen an Alembic migration".format(database_url))
+        if verbose:
+            print_warning("Database ({}) has never seen an Alembic migration".format(database_url))
 
         # migrate to initial alembic revision for Viper
         _migrate_db_to_alembic_management(alembic_cfg, engine, rev=INITIAL_ALEMBIC_DB_REVISION, verbose=verbose)
@@ -922,4 +922,5 @@ def upgrade_database(database_url, sqlite=True, create_backup=True, verbose=Fals
             print_warning("Migrating to head ({})".format(current_head))
         command.upgrade(alembic_cfg, current_head)
 
-    print_success("DB update finished successfully")
+    if verbose:
+        print_success("DB update finished successfully")

@@ -172,9 +172,9 @@ if __name__ == '__main__':
     if options.db:
         # lookup database type in from viper.conf ([database] - connection)
         cfg = Config()
-        connection = cfg.database["connection"]
+        con = cfg.database.connection
 
-        if not connection or connection.startswith('sqlite:///'):
+        if not con or con.startswith('sqlite:///'):
             print_info("Detected Database Backend: sqlite (Backups supported)")
 
             dbs = [("{}/viper.db".format(__project__.base_path))]
@@ -192,7 +192,7 @@ if __name__ == '__main__':
             if choice.lower() != 'y':
                 sys.exit()
 
-            upgrade_database(connection, sqlite=False, verbose=options.verbose)
+            upgrade_database(con, sqlite=False, verbose=options.verbose)
 
     if options.core:
         update()
