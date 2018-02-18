@@ -2,32 +2,32 @@
 HTTP Interfaces
 ===============
 
-Viper has two HTTP Components that can optionally be enabled alongside the console access.
+Viper has two HTTP interfaces that can optionally be enabled alongside the console access:
 
     * REST based API interface
     * Web interface
 
 The first one can be used to easily integrate Viper with other tools, while the second one
-provides an user-friendly alternative to the traditional command-line interface.
+provides a graphical alternative to the traditional command-line interface.
 
 
 Security Considerations
 =======================
 
-Beware that Viper does not provide any security mechanism to protect neither of the HTTP interfaces.
-Enabling either interface access to the Internet would severely expose the security of your system,
-as users are able not only to access and operate on your Viper repositories, but also execute commands
+Beware that Viper does not provide any security mechanism to protect the HTTP interfaces.
+Enabling either interface access to the Internet severely jeopardizes the security of your system,
+as anyone will be able not only to access and operate on your Viper repositories, but also execute commands
 on the hosting system.
 
 Make sure you take all necessary precautions to implement authentication and encryption whenever necessary
-through the tools provided by your firewall and web server.
+through the tools provided by your firewall and web server, *before* enabling any of the HTTP interfaces.
 
 
-API
+REST API
 ===
 
 Viper provides a REST-based API interface through which you can operate on the repositories as well
-as execute almost all functions that you would normally get through the command-line interface.
+as execute almost all functions that you would get through the command-line interface.
 
 To start the API::
 
@@ -45,7 +45,7 @@ You can bind it on a different IP and port by providing additional options::
       -H HOST, --host HOST  Host to bind the API server on
       -p PORT, --port PORT  Port to bind the API server on
 
-The API commands will provide JSON results. Following ou can find details on the commands
+The API commands will provide JSON results.  The following commands are currently
 available.
 
 
@@ -108,7 +108,7 @@ available.
 
     **POST /file/add_url**
 
-        Submit a url to Viper.
+        Submit a file via a URL to Viper.
 
         **Example request**::
 
@@ -125,12 +125,12 @@ available.
 
             * ``url``: url of the file to download
             * ``tags``: comma separated list of tags
-            * ``tor``: if a value is set, tor will be used to download the file
+            * ``tor``: if a value is set, TOR will be used to download the file from the URL
 
         **Status codes**:
 
             * ``200`` - no errors
-            * ``500`` - something failed when adding the file
+            * ``500`` - something failed when downloading or adding the file
 
 
 /file/get
@@ -151,7 +151,7 @@ available.
         **Status codes**:
 
             * ``200`` - no error
-            * ``400`` - you did not provide a valid hash (MD5 or SHA256)
+            * ``400`` - invalid hash format (MD5 or SHA256)
             * ``404`` - file not found
 
 
@@ -160,7 +160,7 @@ available.
 
     **GET /file/delete/** *(str: MD5 or SHA256 hash)*
 
-        Delete file from Viper.
+        Delete a file from Viper.
 
         **Example request**:
 
@@ -176,7 +176,7 @@ available.
         **Status codes**:
 
             * ``200`` - no error
-            * ``400`` - invalid hash format
+            * ``400`` - invalid hash format (MD5 or SHA256)
             * ``404`` - file not found
             * ``500`` - unable to delete file
 
@@ -248,7 +248,7 @@ available.
         **Status codes**:
 
             * ``200`` - no error
-            * ``400`` - invalid search term
+            * ``400`` - invalid search parameter
 
 
 /file/tags/add
@@ -276,8 +276,8 @@ available.
             * ``ssdeep``: select by ssdeep
             * ``tag``: select by tag
             * ``name``: select by name
-            * ``all``: retrieve all files
-            * ``latest``: retrieve only the most recently added files
+            * ``all``: select all files
+            * ``latest``: select only the most recently added files
 
         **Status codes**:
 
@@ -310,14 +310,14 @@ available.
 
         **Status codes**:
 
-            * ``200`` - no error#
+            * ``200`` - no error
 
 /file/notes/add
 ----------------
 
     **POST /file/notes/add**
 
-        Add a note to a sample
+        Add a note to a file
 
         **Parameters**:
 
@@ -371,7 +371,7 @@ available.
 
     **POST /file/notes/update**
 
-        Updates a note from a sample
+        Updates a file's note
 
         **Parameters**:
 
@@ -399,7 +399,7 @@ available.
 
     **POST /file/notes/delete**
 
-        Delete a note from a sample
+        Delete a note from a file
 
         **Parameters**:
 
@@ -465,7 +465,7 @@ available.
 
             * ``project``: project name
             * ``sha256``: SHA256 hash of the file to execute the command on
-            * ``cmdline``: the full command line as you would normally pass to the CLI
+            * ``cmdline``: the full command line as you would normally pass it to the Viper CLI
 
         **Status codes**:
 
@@ -475,13 +475,13 @@ available.
 Web Interface
 =============
 
-Viper comes with a basic single threaded HTML Browser interface that can run alongside the command-line interface and API.
+Viper comes with a basic single threaded HTML browser interface that can run alongside the command-line interface and API.
 Its main features are:
 
     * Project Switching / Creation
     * Multiple File Upload
     * File Download
-    * Unpack Compressed uploads
+    * Extraction of Compressed Uploads
     * Full Search (including tag, name, mime, note, type)
     * Hex Viewer
     * Run Modules
@@ -495,7 +495,7 @@ Launch the web interface
 To launch the web application move into the viper directory and run the ``web.py`` script.
 By default it launches a single threaded bottle web server on localhost:9090::
 
-    user@localhost:~/$ viper-web
+    user@localhost:~/$ viper-web 
     Bottle v0.12.8 server starting up (using WSGIRefServer())...
     Listening on http://localhost:9090/
     Hit Ctrl-C to quit.
@@ -510,9 +510,9 @@ You can set the listening IP address and port with options -H and -p ::
 
 Use viper in a (web) production environment
 --------------
-In production use, its often not recommended to use the default Bottle WSGIRefServer as it can be quite slow and requires manual start.
+In production use, it is often not recommended to use the default Bottle WSGIRefServer as it can be quite slow and requires manual start.
 
-A dedicated webserver that serves pages on standard ports and with a standardized configuration is possible with viper, but requires some additional setup
+A dedicated webserver that serves pages on standard ports and with a standardized configuration is supported by Viper, but requires some additional setup.  
 To make this work, we are using uwsgi and nginx as stack.
 
 To use nginx as the webserver serving web.py,::
@@ -520,7 +520,7 @@ To use nginx as the webserver serving web.py,::
 $ sudo apt-get remove apache2 #avoid conflicts
 $ sudo apt-get install nginx-full uwsgi uwsgi-plugin-python
 
-Move (or copy) the source to the web directory and make sure the permissions match ::
+Move (or copy) the source to the web root directory and make sure the permissions match ::
 
 $ sudo mv viper-* /srv/www/viper
 $ chown -R www-data:www-data /srv/www/viper
@@ -557,6 +557,6 @@ Tail the uwsgi logfile to make sure everything works ok: ::
 
  $ tail -f /var/log/uwsgi/app/bottle.log
 
-And browse to the default port 80 interface of the webserver. You should be greeted with the viper webpage.
+and browse to the default port 80 interface of the webserver. You should be greeted with the Viper website.
 
-Setting up SSL and web-based authentication is out of scope for this document, but infromation can be found in the nginx manual and in one of the many tutorials on the web.
+Setting up SSL and web-based authentication is out of scope for this document, but information can be found in the nginx manual and in one of the many tutorials on the web.
