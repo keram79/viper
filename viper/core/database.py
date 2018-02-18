@@ -194,7 +194,7 @@ class Database:
     def __init__(self):
 
         self.supports_projects = False  # currently only sqlite support projects
-        
+
         if cfg.database and cfg.database.connection:
             self._connect_database(cfg.database.connection)
         else:
